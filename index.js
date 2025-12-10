@@ -1,10 +1,13 @@
-// index.js – Kuupress Discord bot (ESM, pretty leaderboard + /user)
+// index.js – Kuupress Discord bot (ESM, pretty leaderboard + /user + paginated /rank)
 import 'dotenv/config'
 import {
     Client,
     GatewayIntentBits,
     EmbedBuilder,
     Events,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
 } from 'discord.js'
 
 // ===== ALLOWED GUILDS (limit to 2 servers) =====
@@ -26,6 +29,7 @@ if (!ALLOWED_GUILD_IDS.length) {
 
 // KUUPRESS_API_BASE like: https://kuupress-api.test or https://api.kuupress.com
 const KUUPRESS_API_BASE = (process.env.KUUPRESS_API_BASE || '').replace(/\/+$/, '')
+const KUUPRESS_LEADERBOARD_URL = 'https://kuupress.com/leaderboard'
 
 if (!KUUPRESS_API_BASE) {
     console.warn('⚠️ KUUPRESS_API_BASE is not set in .env')
@@ -105,14 +109,36 @@ function formatLeaderboardRows(top) {
     return '```md\n' + header + '\n' + lines.join('\n') + '\n```'
 }
 
-/* ================== COMMAND HANDLER ================== */
+function buildLeaderboardEmbed(page, top) {
+    const table = formatLeaderboardRows(top)
+
+    const description =
+        table + `\n🔗 **View full leaderboard:** ${KUUPRESS_LEADERBOARD_URL}`
+
+    return new EmbedBuilder()
+        .setTitle('🏆 Kuupress Leaderboard')
+        .setURL(KUUPRESS_LEADERBOARD_URL) // clickable title
+        .setDescription(description)
+        .setColor(0xffd54f)
+        .setFooter({ text: `Page ${page} • View the full leaderboard on Kuupress` }) // no total shown
+        .setTimestamp()
+}
+
+function buildLeaderboardComponents(nextPage) {
+    // One "Next" button that carries the target page
+    const nextButton = new ButtonBuilder()
+        .setCustomId(`rank_next_${nextPage}`)
+        .setLabel('Next')
+        .setStyle(ButtonStyle.Primary)
+
+    return [new ActionRowBuilder().addComponents(nextButton)]
+}
+
+/* ================== COMMAND & BUTTON HANDLER ================== */
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return
-
     // 🔒 Hard limit to specific servers if configured
-    if (ALLOWED_GUILD_IDS.length && !ALLOWED_GUILD_IDS.includes(interaction.guildId)) {
-        // Nicest UX: tell them it's restricted, but ephemeral
+    if (interaction.guildId && ALLOWED_GUILD_IDS.length && !ALLOWED_GUILD_IDS.includes(interaction.guildId)) {
         if (interaction.isRepliable()) {
             try {
                 await interaction.reply({
@@ -120,91 +146,134 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     ephemeral: true,
                 })
             } catch {
-                // ignore any reply errors
+                // ignore reply errors
             }
         }
         return
     }
 
-    // /rank – beautified leaderboard
-    if (interaction.commandName === 'rank') {
-        await interaction.deferReply() // public
+    // Slash commands
+    if (interaction.isChatInputCommand()) {
+        // /rank – beautified leaderboard (page 1)
+        if (interaction.commandName === 'rank') {
+            const page = 1
+            await interaction.deferReply() // public
 
-        try {
-            const { data, meta } = await fetchLeaderboard(1)
-            const top = (data || []).slice(0, 10)
+            try {
+                const { data } = await fetchLeaderboard(page)
+                const top = (data || []).slice(0, 10)
 
-            if (!top.length) {
-                await interaction.editReply('No ranked users yet.')
-                return
+                if (!top.length) {
+                    await interaction.editReply('No ranked users yet.')
+                    return
+                }
+
+                const embed = buildLeaderboardEmbed(page, top)
+                const components = buildLeaderboardComponents(page + 1)
+
+                await interaction.editReply({
+                    embeds: [embed],
+                    components,
+                })
+            } catch (error) {
+                console.error(error)
+                await interaction.editReply('❌ Failed to load leaderboard from Kuupress API.')
             }
 
-            const table = formatLeaderboardRows(top)
+            return
+        }
 
-            const embed = new EmbedBuilder()
-                .setTitle('🏆 Kuupress Leaderboard')
-                .setDescription(table)
-                .setColor(0xffd54f)
-                .setTimestamp()
+        // /user – show profile + stats
+        if (interaction.commandName === 'user') {
+            const username = interaction.options.getString('username')
 
-            await interaction.editReply({ embeds: [embed] })
-        } catch (error) {
-            console.error(error)
-            await interaction.editReply('❌ Failed to load leaderboard from Kuupress API.')
+            await interaction.deferReply() // public
+
+            try {
+                const u = await fetchUser(username)
+
+                const totalXp = u.total_xp ?? u.current_exp ?? 0
+                const rank = u.global_rank ?? u.rank ?? null
+
+                const medal =
+                    rank === 1 ? '🥇'
+                        : rank === 2 ? '🥈'
+                            : rank === 3 ? '🥉'
+                                : rank ? `#${rank}` : 'Unranked'
+
+                const lines = [
+                    `**Username:** ${u.username}`,
+                    `**Level:** Lv ${u.level}`,
+                    `**XP:** ${totalXp.toLocaleString()}`,
+                    '',
+                    `📖 **Chapters read:** ${u.stats?.chapters_read?.toLocaleString?.() ?? 0}`,
+                    `📚 **Novels followed:** ${u.stats?.novels_followed?.toLocaleString?.() ?? 0}`,
+                ]
+
+                const profileUrl = `https://kuupress.com/u/${u.username}`
+                lines.push('', `🔗 [View on Kuupress](${profileUrl})`)
+
+                const avatarUrl = u.avatar || u.avatar_url || null
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`👤 ${u.name || u.username}`)
+                    .setDescription(lines.join('\n'))
+                    .setColor(0xffd54f)
+                    .setTimestamp()
+
+                if (avatarUrl) {
+                    embed.setThumbnail(avatarUrl)
+                }
+
+                await interaction.editReply({ embeds: [embed] })
+            } catch (e) {
+                console.error(e)
+                await interaction.editReply(`❌ User **${username}** not found or profile is unavailable.`)
+            }
+
+            return
         }
 
         return
     }
 
-    // /user – show profile + stats
-    if (interaction.commandName === 'user') {
-        const username = interaction.options.getString('username')
+    // Button interactions (Next for leaderboard)
+    if (interaction.isButton()) {
+        const { customId } = interaction
 
-        await interaction.deferReply() // public
+        if (customId.startsWith('rank_next_')) {
+            const pageStr = customId.replace('rank_next_', '')
+            const page = parseInt(pageStr, 10) || 1
 
-        try {
-            const u = await fetchUser(username)
+            try {
+                const { data } = await fetchLeaderboard(page)
+                const top = (data || []).slice(0, 10)
 
-            const totalXp = u.total_xp ?? u.current_exp ?? 0
-            const rank = u.global_rank ?? u.rank ?? null
+                if (!top.length) {
+                    // No more results – disable the button
+                    const embed = buildLeaderboardEmbed(page - 1, [])
+                    await interaction.update({
+                        content: 'No more pages.',
+                        components: [],
+                    })
+                    return
+                }
 
-            const medal =
-                rank === 1 ? '🥇'
-                    : rank === 2 ? '🥈'
-                        : rank === 3 ? '🥉'
-                            : rank ? `#${rank}` : 'Unranked'
+                const embed = buildLeaderboardEmbed(page, top)
+                const components = buildLeaderboardComponents(page + 1)
 
-            const lines = [
-                `**Username:** ${u.username}`,
-                `**Level:** Lv ${u.level}`,
-                `**XP:** ${totalXp.toLocaleString()}`,
-                '',
-                `📖 **Chapters read:** ${u.stats?.chapters_read?.toLocaleString?.() ?? 0}`,
-                `📚 **Novels followed:** ${u.stats?.novels_followed?.toLocaleString?.() ?? 0}`,
-            ]
-
-            const profileUrl = `https://kuupress.com/u/${u.username}`
-            lines.push('', `🔗 [View on Kuupress](${profileUrl})`)
-
-            const avatarUrl = u.avatar || u.avatar_url || null
-
-            const embed = new EmbedBuilder()
-                .setTitle(`👤 ${u.name || u.username}`)
-                .setDescription(lines.join('\n'))
-                .setColor(0xffd54f)
-                .setTimestamp()
-
-            if (avatarUrl) {
-                embed.setThumbnail(avatarUrl)
+                await interaction.update({
+                    embeds: [embed],
+                    components,
+                })
+            } catch (err) {
+                console.error(err)
+                await interaction.update({
+                    content: '❌ Failed to load next page.',
+                    components: [],
+                })
             }
-
-            await interaction.editReply({ embeds: [embed] })
-        } catch (e) {
-            console.error(e)
-            await interaction.editReply(`❌ User **${username}** not found or profile is unavailable.`)
         }
-
-        return
     }
 })
 
