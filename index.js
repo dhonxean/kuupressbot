@@ -1,55 +1,59 @@
-// index.js (beautified leaderboard)
-require('dotenv').config()
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js')
-const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
+// index.js – Kuupress Discord bot (ESM, pretty leaderboard + /user)
+import 'dotenv/config'
+import {
+    Client,
+    GatewayIntentBits,
+    EmbedBuilder,
+    Events,
+} from 'discord.js'
+
+// Node 18+ has global fetch – no node-fetch needed
+// KUUPRESS_API_BASE like: https://kuupress-api.test or https://api.kuupress.com
+const KUUPRESS_API_BASE = (process.env.KUUPRESS_API_BASE || '').replace(/\/+$/, '')
+
+if (!KUUPRESS_API_BASE) {
+    console.warn('⚠️ KUUPRESS_API_BASE is not set in .env')
+}
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds],
 })
 
-// Fix deprecation: use clientReady instead of ready
-client.once('clientReady', (c) => {
+// v14: prefer Events.ClientReady (alias of "clientReady")
+client.once(Events.ClientReady, (c) => {
     console.log(`Logged in as ${c.user.tag}`)
 })
 
+/* ================== API HELPERS ================== */
 
-async function fetchUser(username) {
-    const base = process.env.KUUPRESS_API_BASE
-    if (!base) throw new Error('KUUPRESS_API_BASE is not set')
-
-    const url = `${base.replace(/\/+$/, '')}/api/public/profile/${encodeURIComponent(
-        username,
-    )}`
-
-    const res = await fetch(url)
-
-    if (!res.ok) {
-        throw new Error(`User profile not found: ${res.status} ${res.statusText}`)
+async function fetchJson(path) {
+    if (!KUUPRESS_API_BASE) {
+        throw new Error('KUUPRESS_API_BASE is not configured')
     }
 
-    const json = await res.json()
-    return json.data // matches your PublicProfile
+    const url = `${KUUPRESS_API_BASE}${path}`
+
+    const res = await fetch(url)
+    if (!res.ok) {
+        throw new Error(`API error ${res.status} ${res.statusText} for ${url}`)
+    }
+
+    return res.json()
 }
 
 async function fetchLeaderboard(page = 1) {
-    const base = process.env.KUUPRESS_API_BASE
-    if (!base) {
-        throw new Error('KUUPRESS_API_BASE is not set')
-    }
-
-    const url = `${base.replace(/\/+$/, '')}/api/public/leaderboard?page=${page}`
-
-    const res = await fetch(url)
-    if (!res.ok) {
-        throw new Error(`Leaderboard API error: ${res.status} ${res.statusText}`)
-    }
-
-    return res.json() // { data, meta }
+    const json = await fetchJson(`/api/public/leaderboard?page=${page}`)
+    // Expecting: { data: [...], meta: {...} }
+    return json
 }
 
-/**
- * Format leaderboard rows into a pretty monospace table
- */
+async function fetchUser(username) {
+    const json = await fetchJson(`/api/public/profile/${encodeURIComponent(username)}`)
+    return json.data // matches your PublicProfile
+}
+
+/* =============== LEADERBOARD FORMATTER =============== */
+
 function formatLeaderboardRows(top) {
     const header =
         'Rank  Player              Lv   XP\n' +
@@ -76,31 +80,67 @@ function formatLeaderboardRows(top) {
         const levelCol = `Lv${u.level ?? 1}`.padEnd(4, ' ')
         const xpCol = `${(u.total_xp ?? 0).toLocaleString()} XP`
 
-        // Example: "🥇   KuupressUser      Lv10  12,345 XP"
         const rankCol = medal.padEnd(4, ' ')
 
+        // Example: "🥇   KuupressUser      Lv10  12,345 XP"
         return `${rankCol}  ${nameCol}  ${levelCol} ${xpCol}`
     })
 
-    // Wrap in a Markdown code block for a “terminal scoreboard” look
+    // Markdown code block for nice monospace scoreboard
     return '```md\n' + header + '\n' + lines.join('\n') + '\n```'
 }
 
-client.on('interactionCreate', async (interaction) => {
+/* ================== COMMAND HANDLER ================== */
+
+client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return
 
-    // existing /rank handler above...
+    // /rank – beautified leaderboard
+    if (interaction.commandName === 'rank') {
+        await interaction.deferReply()
 
+        try {
+            const { data, meta } = await fetchLeaderboard(1)
+            const top = (data || []).slice(0, 10)
+
+            if (!top.length) {
+                await interaction.editReply('No ranked users yet.')
+                return
+            }
+
+            const table = formatLeaderboardRows(top)
+
+            const embed = new EmbedBuilder()
+                .setTitle('🏆 Kuupress Leaderboard')
+                .setDescription(table)
+                .setColor(0xffd54f)
+                .setFooter({
+                    text: meta
+                        ? `Page ${meta.current_page} of ${meta.last_page} • Total ${meta.total} users`
+                        : 'Global leaderboard',
+                })
+                .setTimestamp()
+
+            await interaction.editReply({ embeds: [embed] })
+        } catch (error) {
+            console.error(error)
+            await interaction.editReply('❌ Failed to load leaderboard from Kuupress API.')
+        }
+
+        return
+    }
+
+    // /user – show profile + stats
     if (interaction.commandName === 'user') {
         const username = interaction.options.getString('username')
 
-        await interaction.deferReply() // public
+        await interaction.deferReply()
 
         try {
             const u = await fetchUser(username)
 
             const totalXp = u.total_xp ?? u.current_exp ?? 0
-            const rank = u.global_rank ?? null
+            const rank = u.global_rank ?? u.rank ?? null
 
             const medal =
                 rank === 1 ? '🥇' :
@@ -120,23 +160,28 @@ client.on('interactionCreate', async (interaction) => {
             ]
 
             const profileUrl = `https://kuupress.com/u/${u.username}`
-
             lines.push('', `🔗 [View on Kuupress](${profileUrl})`)
+
+            const avatarUrl = u.avatar || u.avatar_url || null
 
             const embed = new EmbedBuilder()
                 .setTitle(`👤 ${u.name || u.username}`)
                 .setDescription(lines.join('\n'))
                 .setColor(0xffd54f)
-                .setThumbnail(u.avatar || null)
                 .setTimestamp()
+
+            if (avatarUrl) {
+                embed.setThumbnail(avatarUrl)
+            }
 
             await interaction.editReply({ embeds: [embed] })
         } catch (e) {
             console.error(e)
             await interaction.editReply(`❌ User **${username}** not found or profile is unavailable.`)
         }
+
+        return
     }
 })
-
 
 client.login(process.env.DISCORD_TOKEN)
