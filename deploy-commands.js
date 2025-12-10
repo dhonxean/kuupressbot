@@ -3,10 +3,22 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-if (!process.env.DISCORD_CLIENT_ID || !process.env.DISCORD_GUILD_ID || !process.env.DISCORD_TOKEN) {
-    console.error('❌ Missing CLIENT_ID, GUILD_ID or DISCORD_TOKEN in .env')
-    console.error('CLIENT_ID:', process.env.DISCORD_CLIENT_ID)
-    console.error('GUILD_ID:', process.env.DISCORD_GUILD_ID)
+const {
+    DISCORD_CLIENT_ID,
+    DISCORD_TOKEN,
+    DISCORD_GUILD_ID_MAIN,
+    DISCORD_GUILD_ID_SECOND,
+} = process.env
+
+if (!DISCORD_CLIENT_ID || !DISCORD_TOKEN) {
+    console.error('❌ Missing DISCORD_CLIENT_ID or DISCORD_TOKEN in .env')
+    process.exit(1)
+}
+
+const guildIds = [DISCORD_GUILD_ID_MAIN, DISCORD_GUILD_ID_SECOND].filter(Boolean)
+
+if (guildIds.length === 0) {
+    console.error('❌ No guild IDs set (DISCORD_GUILD_ID_MAIN / DISCORD_GUILD_ID_SECOND).')
     process.exit(1)
 }
 
@@ -26,26 +38,23 @@ const commands = [
         ),
 ].map(cmd => cmd.toJSON())
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN)
+const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN)
 
 async function deploy() {
     try {
-        console.log('Refreshing application (/) commands...')
-        // await rest.put(
-        //     Routes.applicationGuildCommands(
-        //         process.env.DISCORD_CLIENT_ID, // your bot's application ID
-        //         process.env.DISCORD_GUILD_ID,  // the server ID
-        //     ),
-        //     { body: commands },
-        // )
-        await rest.put(
-            Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
-            { body: commands },
-        )
+        console.log('Refreshing application (/) commands for guilds:', guildIds.join(', '))
 
-        console.log('✅ Successfully registered slash commands.')
+        for (const gid of guildIds) {
+            console.log(`→ Updating commands for guild ${gid}...`)
+            await rest.put(
+                Routes.applicationGuildCommands(DISCORD_CLIENT_ID, gid),
+                { body: commands },
+            )
+        }
+
+        console.log('✅ Successfully registered slash commands for all configured guilds.')
     } catch (error) {
-        console.error(error)
+        console.error('❌ Error registering commands:', error)
     }
 }
 

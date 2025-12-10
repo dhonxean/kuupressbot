@@ -7,7 +7,23 @@ import {
     Events,
 } from 'discord.js'
 
-// Node 18+ has global fetch – no node-fetch needed
+// ===== ALLOWED GUILDS (limit to 2 servers) =====
+const ALLOWED_GUILD_IDS = [
+    process.env.DISCORD_GUILD_ID_MAIN,
+    process.env.DISCORD_GUILD_ID_SECOND,
+].filter(Boolean)
+
+if (!process.env.DISCORD_TOKEN) {
+    console.error('❌ DISCORD_TOKEN is not set in .env')
+    process.exit(1)
+}
+
+if (!ALLOWED_GUILD_IDS.length) {
+    console.warn('⚠️ No DISCORD_GUILD_ID_MAIN / DISCORD_GUILD_ID_SECOND configured – bot will accept commands from any guild.')
+} else {
+    console.log('✅ Allowed guilds:', ALLOWED_GUILD_IDS.join(', '))
+}
+
 // KUUPRESS_API_BASE like: https://kuupress-api.test or https://api.kuupress.com
 const KUUPRESS_API_BASE = (process.env.KUUPRESS_API_BASE || '').replace(/\/+$/, '')
 
@@ -63,10 +79,10 @@ function formatLeaderboardRows(top) {
         const rank = u.rank ?? null
 
         const medal =
-            rank === 1 ? '🥇' :
-                rank === 2 ? '🥈' :
-                    rank === 3 ? '🥉' :
-                        `#${rank ?? '?'}`
+            rank === 1 ? '🥇'
+                : rank === 2 ? '🥈'
+                    : rank === 3 ? '🥉'
+                        : `#${rank ?? '?'}`
 
         const displayName = (u.name || u.username || 'Unknown').toString()
 
@@ -79,7 +95,6 @@ function formatLeaderboardRows(top) {
 
         const levelCol = `Lv${u.level ?? 1}`.padEnd(4, ' ')
         const xpCol = `${(u.total_xp ?? 0).toLocaleString()} XP`
-
         const rankCol = medal.padEnd(4, ' ')
 
         // Example: "🥇   KuupressUser      Lv10  12,345 XP"
@@ -95,9 +110,25 @@ function formatLeaderboardRows(top) {
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return
 
+    // 🔒 Hard limit to specific servers if configured
+    if (ALLOWED_GUILD_IDS.length && !ALLOWED_GUILD_IDS.includes(interaction.guildId)) {
+        // Nicest UX: tell them it's restricted, but ephemeral
+        if (interaction.isRepliable()) {
+            try {
+                await interaction.reply({
+                    content: '❌ Kuupress bot commands are only enabled in the official Kuupress servers.',
+                    ephemeral: true,
+                })
+            } catch {
+                // ignore any reply errors
+            }
+        }
+        return
+    }
+
     // /rank – beautified leaderboard
     if (interaction.commandName === 'rank') {
-        await interaction.deferReply()
+        await interaction.deferReply() // public
 
         try {
             const { data, meta } = await fetchLeaderboard(1)
@@ -129,7 +160,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'user') {
         const username = interaction.options.getString('username')
 
-        await interaction.deferReply()
+        await interaction.deferReply() // public
 
         try {
             const u = await fetchUser(username)
@@ -138,10 +169,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const rank = u.global_rank ?? u.rank ?? null
 
             const medal =
-                rank === 1 ? '🥇' :
-                    rank === 2 ? '🥈' :
-                        rank === 3 ? '🥉' :
-                            rank ? `#${rank}` : 'Unranked'
+                rank === 1 ? '🥇'
+                    : rank === 2 ? '🥈'
+                        : rank === 3 ? '🥉'
+                            : rank ? `#${rank}` : 'Unranked'
 
             const lines = [
                 `**Username:** ${u.username}`,
