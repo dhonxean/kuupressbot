@@ -114,11 +114,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .setTitle('🏆 Kuupress Leaderboard')
                 .setDescription(table)
                 .setColor(0xffd54f)
-                .setFooter({
-                    text: meta
-                        ? `Page ${meta.current_page} of ${meta.last_page} • Total ${meta.total} users`
-                        : 'Global leaderboard',
-                })
                 .setTimestamp()
 
             await interaction.editReply({ embeds: [embed] })
@@ -150,10 +145,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             const lines = [
                 `**Username:** ${u.username}`,
-                `**Name:** ${u.name || '—'}`,
                 `**Level:** Lv ${u.level}`,
                 `**XP:** ${totalXp.toLocaleString()}`,
-                `**Rank:** ${medal}`,
                 '',
                 `📖 **Chapters read:** ${u.stats?.chapters_read?.toLocaleString?.() ?? 0}`,
                 `📚 **Novels followed:** ${u.stats?.novels_followed?.toLocaleString?.() ?? 0}`,
