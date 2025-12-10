@@ -198,7 +198,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 })
             } catch (error) {
                 console.error(error)
-                await interaction.editReply('❌ Failed to load leaderboard from Kuupress API.')
+                await interaction.editReply('⚠️ Kuupress API is waking up — try again in a moment')
             }
 
             return
@@ -292,7 +292,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             } catch (err) {
                 console.error(err)
                 await interaction.update({
-                    content: '❌ Failed to load that page.',
+                    content: '⚠️ Kuupress API is waking up — try again in a moment',
                     embeds: [],
                     components: [],
                 })
