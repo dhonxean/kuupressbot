@@ -1,4 +1,3 @@
-// index.js
 import 'dotenv/config'
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js'
 import fetch from 'node-fetch'
@@ -13,32 +12,26 @@ client.once('ready', () => {
 
 async function fetchLeaderboard(page = 1) {
     const base = process.env.KUUPRESS_API_BASE
-    if (!base) {
-        throw new Error('KUUPRESS_API_BASE is not set')
-    }
+    if (!base) throw new Error('KUUPRESS_API_BASE is not set')
 
     const url = `${base.replace(/\/+$/, '')}/api/public/leaderboard?page=${page}`
-
     const res = await fetch(url)
 
     if (!res.ok) {
         throw new Error(`Leaderboard API error: ${res.status} ${res.statusText}`)
     }
 
-    const json = await res.json()
-    return json // expecting { data: [...], meta: {...} }
+    return res.json()
 }
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return
     if (interaction.commandName !== 'rank') return
 
-    // Let Discord know we are working
-    await interaction.deferReply({ ephemeral: true }) // only visible to user
+    await interaction.deferReply({ ephemeral: true })
 
     try {
         const { data, meta } = await fetchLeaderboard(1)
-
         const top = (data || []).slice(0, 10)
 
         if (!top.length) {
@@ -48,7 +41,6 @@ client.on('interactionCreate', async (interaction) => {
 
         const lines = top.map((u) => {
             const rank = u.rank ?? null
-
             const medal =
                 rank === 1 ? '🥇' :
                     rank === 2 ? '🥈' :
@@ -73,9 +65,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.editReply({ embeds: [embed] })
     } catch (err) {
         console.error(err)
-        await interaction.editReply(
-            'Failed to fetch leaderboard from Kuupress. 😢',
-        )
+        await interaction.editReply('Failed to fetch leaderboard from Kuupress. 😢')
     }
 })
 
