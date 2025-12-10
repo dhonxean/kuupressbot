@@ -33,8 +33,8 @@ async function deploy() {
         console.log('Refreshing application (/) commands...')
         await rest.put(
             Routes.applicationGuildCommands(
-                process.env.CLIENT_ID, // your bot's application ID
-                process.env.GUILD_ID,  // the server ID
+                process.env.DISCORD_CLIENT_ID, // your bot's application ID
+                process.env.DISCORD_GUILD_ID,  // the server ID
             ),
             { body: commands },
         )
