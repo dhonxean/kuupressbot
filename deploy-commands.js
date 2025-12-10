@@ -3,6 +3,13 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
+if (!process.env.CLIENT_ID || !process.env.GUILD_ID || !process.env.DISCORD_TOKEN) {
+    console.error('❌ Missing CLIENT_ID, GUILD_ID or DISCORD_TOKEN in .env')
+    console.error('CLIENT_ID:', process.env.CLIENT_ID)
+    console.error('GUILD_ID:', process.env.GUILD_ID)
+    process.exit(1)
+}
+
 const commands = [
     new SlashCommandBuilder()
         .setName('rank')
