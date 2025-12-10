@@ -111,27 +111,43 @@ function formatLeaderboardRows(top) {
 
 function buildLeaderboardEmbed(page, top) {
     const table = formatLeaderboardRows(top)
-
     const description =
         table + `\n🔗 **View full leaderboard:** ${KUUPRESS_LEADERBOARD_URL}`
 
     return new EmbedBuilder()
         .setTitle('🏆 Kuupress Leaderboard')
-        .setURL(KUUPRESS_LEADERBOARD_URL) // clickable title
+        .setURL(KUUPRESS_LEADERBOARD_URL)
         .setDescription(description)
         .setColor(0xffd54f)
-        .setFooter({ text: `Page ${page} • View the full leaderboard on Kuupress` }) // no total shown
+        .setFooter({ text: `Page ${page} • View the full leaderboard on Kuupress` }) // no totals
         .setTimestamp()
 }
 
-function buildLeaderboardComponents(nextPage) {
-    // One "Next" button that carries the target page
-    const nextButton = new ButtonBuilder()
-        .setCustomId(`rank_next_${nextPage}`)
-        .setLabel('Next')
-        .setStyle(ButtonStyle.Primary)
+function buildLeaderboardComponents(currentPage, lastPage) {
+    const buttons = []
 
-    return [new ActionRowBuilder().addComponents(nextButton)]
+    // Previous only if there's a previous page
+    if (currentPage > 1) {
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(`rank_page_${currentPage - 1}`)
+                .setLabel('Previous')
+                .setStyle(ButtonStyle.Secondary),
+        )
+    }
+
+    // Next only if there is a next page
+    if (currentPage < lastPage) {
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(`rank_page_${currentPage + 1}`)
+                .setLabel('Next')
+                .setStyle(ButtonStyle.Primary),
+        )
+    }
+
+    if (!buttons.length) return []
+    return [new ActionRowBuilder().addComponents(buttons)]
 }
 
 /* ================== COMMAND & BUTTON HANDLER ================== */
@@ -157,10 +173,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // /rank – beautified leaderboard (page 1)
         if (interaction.commandName === 'rank') {
             const page = 1
-            await interaction.deferReply() // public
+            await interaction.deferReply()
 
             try {
-                const { data } = await fetchLeaderboard(page)
+                const { data, meta } = await fetchLeaderboard(page)
                 const top = (data || []).slice(0, 10)
 
                 if (!top.length) {
@@ -168,8 +184,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return
                 }
 
-                const embed = buildLeaderboardEmbed(page, top)
-                const components = buildLeaderboardComponents(page + 1)
+                const currentPage = meta?.current_page ?? page
+                const lastPage = meta?.last_page ?? page
+
+                const embed = buildLeaderboardEmbed(currentPage, top)
+                const components = buildLeaderboardComponents(currentPage, lastPage)
 
                 await interaction.editReply({
                     embeds: [embed],
@@ -187,7 +206,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.commandName === 'user') {
             const username = interaction.options.getString('username')
 
-            await interaction.deferReply() // public
+            await interaction.deferReply()
 
             try {
                 const u = await fetchUser(username)
@@ -237,30 +256,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return
     }
 
-    // Button interactions (Next for leaderboard)
+    // Button interactions (Previous / Next)
     if (interaction.isButton()) {
         const { customId } = interaction
 
-        if (customId.startsWith('rank_next_')) {
-            const pageStr = customId.replace('rank_next_', '')
+        if (customId.startsWith('rank_page_')) {
+            const pageStr = customId.replace('rank_page_', '')
             const page = parseInt(pageStr, 10) || 1
 
             try {
-                const { data } = await fetchLeaderboard(page)
+                const { data, meta } = await fetchLeaderboard(page)
                 const top = (data || []).slice(0, 10)
 
                 if (!top.length) {
-                    // No more results – disable the button
-                    const embed = buildLeaderboardEmbed(page - 1, [])
                     await interaction.update({
-                        content: 'No more pages.',
+                        content: 'No ranked users on this page.',
+                        embeds: [],
                         components: [],
                     })
                     return
                 }
 
-                const embed = buildLeaderboardEmbed(page, top)
-                const components = buildLeaderboardComponents(page + 1)
+                const currentPage = meta?.current_page ?? page
+                const lastPage = meta?.last_page ?? page
+
+                const embed = buildLeaderboardEmbed(currentPage, top)
+                const components = buildLeaderboardComponents(currentPage, lastPage)
 
                 await interaction.update({
                     embeds: [embed],
@@ -269,7 +290,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             } catch (err) {
                 console.error(err)
                 await interaction.update({
-                    content: '❌ Failed to load next page.',
+                    content: '❌ Failed to load that page.',
+                    embeds: [],
                     components: [],
                 })
             }
