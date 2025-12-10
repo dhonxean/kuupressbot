@@ -1,27 +1,23 @@
 import 'dotenv/config'
 import { REST, Routes, SlashCommandBuilder } from 'discord.js'
 
+const { SlashCommandBuilder } = require('discord.js')
+
 const commands = [
     new SlashCommandBuilder()
         .setName('rank')
-        .setDescription('Show the Kuupress leaderboard.')
-        .toJSON(),
-]
+        .setDescription('Show the Kuupress leaderboard.'),
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN)
-
-async function main() {
-    console.log('Refreshing application (/) commands...')
-
-    await rest.put(
-        Routes.applicationGuildCommands(
-            process.env.DISCORD_CLIENT_ID,
-            process.env.DISCORD_GUILD_ID,
+    new SlashCommandBuilder()
+        .setName('user')
+        .setDescription('View Kuupress user profile and rank.')
+        .addStringOption(option =>
+            option
+                .setName('username')
+                .setDescription('Kuupress username')
+                .setRequired(true)
         ),
-        { body: commands },
-    )
+].map(cmd => cmd.toJSON())
 
-    console.log('Successfully registered /rank command.')
-}
 
 main()
