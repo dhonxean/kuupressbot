@@ -74,53 +74,40 @@ async function fetchUser(username) {
 
 /* =============== LEADERBOARD FORMATTER =============== */
 
-// Mobile-friendly, single-line rows instead of wide monospace table
 function formatLeaderboardRows(top) {
-    return top.map((u) => {
+    const header =
+        'Rank  Player              Lv   XP\n' +
+        '----  -----------------  ---  ------------'
+
+    const lines = top.map((u) => {
         const rank = u.rank ?? null
 
         const medal =
             rank === 1 ? '🥇'
                 : rank === 2 ? '🥈'
                     : rank === 3 ? '🥉'
-                        : rank ? `#${rank}` : '#?'
+                        : `#${rank ?? '?'}`
 
         const displayName = (u.name || u.username || 'Unknown').toString()
 
-        // Trim long names so they don’t wrap too ugly on mobile
+        // Trim and pad name to fixed width for alignment
         let nameCol = displayName
-        if (nameCol.length > 18) {
-            nameCol = nameCol.slice(0, 17) + '…'
+        if (nameCol.length > 17) {
+            nameCol = nameCol.slice(0, 16) + '…'
         }
+        nameCol = nameCol.padEnd(17, ' ')
 
-        const level = u.level ?? 1
-        const xp = (u.total_xp ?? 0).toLocaleString()
+        const levelCol = `Lv${u.level ?? 1}`.padEnd(4, ' ')
+        const xpCol = `${(u.total_xp ?? 0).toLocaleString()} XP`
+        const rankCol = medal.padEnd(4, ' ')
 
-        // Example:
-        // 🥇 **KuupressUser** — Lv 10 • 12,345 XP
-        return `${medal} **${nameCol}** — Lv ${level} • ${xp} XP`
-    }).join('\n')
+        // Example: "🥇   KuupressUser      Lv10  12,345 XP"
+        return `${rankCol}  ${nameCol}  ${levelCol} ${xpCol}`
+    })
+
+    // Markdown code block for nice monospace scoreboard
+    return '```md\n' + header + '\n' + lines.join('\n') + '\n```'
 }
-
-function buildLeaderboardEmbed(page, top) {
-    const body = formatLeaderboardRows(top)
-    const description = [
-        body,
-        '',
-        `🔗 [View full leaderboard](${KUUPRESS_LEADERBOARD_URL})`,
-    ].join('\n')
-
-    return new EmbedBuilder()
-        .setTitle('🏆 Kuupress Leaderboard')
-        .setURL(KUUPRESS_LEADERBOARD_URL)
-        .setDescription(description)
-        .setColor(0xffd54f)
-        .setFooter({
-            text: `Page ${page} • View the full leaderboard on Kuupress`,
-        })
-        .setTimestamp()
-}
-
 
 function buildLeaderboardEmbed(page, top) {
     const table = formatLeaderboardRows(top)
